@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	amqp "github.com/rabbitmq/amqp091-go"
+	"os"
 	"strconv"
 	"time"
 )
@@ -14,7 +15,7 @@ func main() {
 
 	// Данные тестового письма
 	mailData := EmailData{
-		To:          "some@emm.ru",       // Кому отправляем (адрес получателя)
+		To:          os.Getenv("target"), // Кому отправляем (адрес получателя)
 		Subject:     "Test",              // Тема письма
 		ContentType: "text/plain",        // Тип контента (text/plain, text/html)
 		Body:        "Test milky-mailer", // Тело письма
@@ -23,7 +24,7 @@ func main() {
 
 	cfg := NewConfig()
 
-	// 1. Установка соединения с AMQP
+	// Установка соединения с AMQP
 	connection, err := amqp.DialConfig(fmt.Sprintf(
 		"amqp://%s:%s@%s:%d/",
 		cfg.AMQP.User,
@@ -51,20 +52,18 @@ func main() {
 		panic(errors.Join(err, errors.New("error create amqp channel")))
 	}
 
-	// Создание очереди в AMQP (только для тестов)
-	/*_, err = amqpChannel.QueueDeclare(
-		cfg.AMQP.Queue,
-		true,
-		false,
-		false,
-		false,
-		nil,
-	)*/
-
-	// Проверка существования очереди. (Важно! В случае, если очередь не существует, то нельзя создавать новую очередь)
-	_, err = amqpChannel.QueueInspect(cfg.AMQP.Queue)
+	// Проверка существования обменника. (Важно! В случае, если обменник не существует, то нельзя создавать новый обменник)
+	err = amqpChannel.ExchangeDeclarePassive(
+		cfg.AMQP.Exchange, // Имя обменника
+		"direct",          // Тип обменника
+		true,              // durable
+		false,             // autoDelete
+		false,             // internal
+		false,             // noWait
+		nil,               // args
+	)
 	if err != nil {
-		panic(errors.Join(err, errors.New("error inspect amqp queue or queue not exists")))
+		panic(errors.Join(err, errors.New("error declare exchange")))
 	}
 
 	// Формирование сообщения
@@ -78,14 +77,16 @@ func main() {
 		Body:        []byte(mailData.Body), // Тело письма
 
 		// Необязательно, но очень настоятельно рекомендуется
+
 		Priority: 2, // Приоритет сообщения
-		// Время жизни сообщения (в данном случае 12 часов)
+
+		// Время жизни сообщения (в данном примере 12 часов)
 		Expiration: strconv.FormatInt((time.Hour * 12).Milliseconds(), 10),
 
 		// Ниже идут необязательные поля, которые наполняют логи полезной информацией
 		Timestamp: time.Now(),            // Время создания сообщения
 		MessageId: uuid.New().String(),   // Идентификатор сообщения
-		AppId:     "milky-mailer-client", // Идентификатор приложения отправителя
+		AppId:     "milky-mailer-client", // Идентификатор приложения отправителя (appName или другое)
 	}
 
 	// На этот контекст не смотрите, ничего важного для понимания работы с AMQP тут нет
@@ -93,7 +94,14 @@ func main() {
 	defer cancel()
 
 	// Публикация сообщения в очередь
-	err = amqpChannel.PublishWithContext(ctx, "", cfg.AMQP.Queue, false, false, amqpMessage)
+	err = amqpChannel.PublishWithContext(
+		ctx,
+		cfg.AMQP.Exchange, // Имя обменника
+		"",                // Имя очереди (пустая строка, т.к. очередь привязана к обменнику и её указание не требуется)
+		false,             // mandatory
+		false,             // immediate
+		amqpMessage,       // Сообщение
+	)
 	if err != nil {
 		panic(errors.Join(err, errors.New("error publish message")))
 	}

@@ -9,7 +9,7 @@ type AMQPConfig struct {
 	Port        int
 	User        string
 	Password    string
-	Queue       string
+	Exchange    string
 	VirtualHost string
 }
 
@@ -28,7 +28,7 @@ func NewConfig() *Config {
 			Port:        5672,
 			User:        "mail",
 			Password:    "mail",
-			Queue:       "milky-mailer",
+			Exchange:    "milky-mailer-dev",
 			VirtualHost: "/",
 		},
 	}
